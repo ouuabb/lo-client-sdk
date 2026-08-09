@@ -5,7 +5,7 @@
 ## 项目是什么
 
 `@lo/client` 是 **lo 知识库 API 的 HTTP 客户端 SDK**。它消费 `log serve` 提供的 REST/JSON 协议,
-供桌面端/脚本等进程内消费者使用,与面向插件作者的 `lo-sdk`(WASM)互补。
+供桌面端/脚本等进程内消费者使用,与面向插件作者的 `lo-plugins-sdk`(WASM)互补。
 
 ## 技术栈与约束
 

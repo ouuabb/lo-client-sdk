@@ -104,10 +104,10 @@ npm run lint   # ESLint
 npm run format # Prettier
 ```
 
-## 与 lo-sdk 的关系
+## 与 lo-plugins-sdk 的关系
 
 - **@lo/client**:面向服务端 API 消费者(桌面端/脚本),直接调用 HTTP 协议。
-- **lo-sdk**:面向插件作者,编译为 WASM 插件,跨平台(移动/桌面)。
+- **lo-plugins-sdk**:面向插件作者,编译为 WASM 插件,跨平台(移动/桌面)。
 
 两者互补,不重复;SDK 类型声明允许现有 API 被两个世界共享。
 
