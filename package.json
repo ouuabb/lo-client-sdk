@@ -1,5 +1,6 @@
 {
   "name": "@lo/client",
+  "packageManager": "yarn@1.22.22",
   "version": "0.1.0",
   "description": "lo 知识库 API 客户端 SDK —— log serve HTTP 协议的类型化客户端",
   "main": "src/index.cjs",
