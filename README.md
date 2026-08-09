@@ -76,6 +76,9 @@ LOClient
 ├── automations: list / get / create / update / remove / enable / disable / run / history
 ├── evolution: status / observe / health / detect / plan / execute / history / rollback
 ├── sync     : sync / push / pull
+├── operations: execute / list / get / undo / beginTransaction / executeInTransaction / commit / rollback
+├── relations: list / get / create / update / remove
+├── events   : history / subscribe(SSE)
 └── admin    : stats / resources / link / tags / graph / containers / relations / audit / import / commit / suggestions / types / categories / tags
 ```
 
