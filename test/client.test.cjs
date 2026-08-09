@@ -437,3 +437,308 @@ describe('端点覆盖', () => {
     expect(calls[2].url).toContain('?hard=true');
   });
 });
+
+describe('relations namespace', () => {
+  it('list 无参数 GET /api/relations', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: { total: 0, data: [] }, headers: {} }),
+    );
+    fakeAuthed(client);
+    await client.relations.list();
+    expect(calls[0].method).toBe('GET');
+    expect(calls[0].url).toBe('http://127.0.0.1:8765/api/relations');
+  });
+
+  it('list 带 type/limit query', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: {}, headers: {} }),
+    );
+    fakeAuthed(client);
+    await client.relations.list({ type: 'reference', limit: 5 });
+    expect(calls[0].url).toContain('/api/relations?');
+    expect(calls[0].url).toContain('type=reference');
+    expect(calls[0].url).toContain('limit=5');
+  });
+
+  it('list 带 rid 返回 outgoing/incoming', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: { outgoing: [], incoming: [] }, headers: {} }),
+    );
+    fakeAuthed(client);
+    const res = await client.relations.list({ rid: 'res_1' });
+    expect(res.outgoing).toEqual([]);
+    expect(calls[0].url).toContain('rid=res_1');
+  });
+
+  it('get 编码 id', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: { id: 7 }, headers: {} }),
+    );
+    fakeAuthed(client);
+    const res = await client.relations.get(7);
+    expect(res.id).toBe(7);
+    expect(calls[0].url).toBe('http://127.0.0.1:8765/api/relations/7');
+  });
+
+  it('create 发 POST body {from,to,type,metadata}', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 201, body: { id: 1 }, headers: {} }),
+    );
+    fakeAuthed(client);
+    const res = await client.relations.create('res_a', 'res_b', 'reference', { k: 1 });
+    expect(res.id).toBe(1);
+    expect(calls[0].method).toBe('POST');
+    expect(calls[0].url).toBe('http://127.0.0.1:8765/api/relations');
+    expect(calls[0].requestOpts.body).toEqual({
+      from: 'res_a',
+      to: 'res_b',
+      type: 'reference',
+      metadata: { k: 1 },
+    });
+  });
+
+  it('create 默认 type 为 reference', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 201, body: {}, headers: {} }),
+    );
+    fakeAuthed(client);
+    await client.relations.create('res_a', 'res_b');
+    expect(calls[0].requestOpts.body.type).toBe('reference');
+  });
+
+  it('update 发 PUT 带 updates 包装', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: { id: 3 }, headers: {} }),
+    );
+    fakeAuthed(client);
+    await client.relations.update(3, { metadata: { x: 1 } });
+    expect(calls[0].method).toBe('PUT');
+    expect(calls[0].url).toBe('http://127.0.0.1:8765/api/relations/3');
+    expect(calls[0].requestOpts.body).toEqual({ updates: { metadata: { x: 1 } } });
+  });
+
+  it('remove 发 DELETE', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: { removed: true, id: 5 }, headers: {} }),
+    );
+    fakeAuthed(client);
+    const res = await client.relations.remove(5);
+    expect(res.removed).toBe(true);
+    expect(calls[0].method).toBe('DELETE');
+    expect(calls[0].url).toBe('http://127.0.0.1:8765/api/relations/5');
+  });
+});
+
+describe('operations namespace', () => {
+  it('execute 发 POST body {type,params,options}', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 201, body: { operationId: 'op_1', result: {} }, headers: {} }),
+    );
+    fakeAuthed(client);
+    const res = await client.operations.execute('relation.create', { fromRid: 'a', toRid: 'b' });
+    expect(res.operationId).toBe('op_1');
+    expect(calls[0].method).toBe('POST');
+    expect(calls[0].url).toBe('http://127.0.0.1:8765/api/operations');
+    expect(calls[0].requestOpts.body).toEqual({
+      type: 'relation.create',
+      params: { fromRid: 'a', toRid: 'b' },
+      options: {},
+    });
+  });
+
+  it('execute 默认空 params/options', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 201, body: {}, headers: {} }),
+    );
+    fakeAuthed(client);
+    await client.operations.execute('resource.create');
+    expect(calls[0].requestOpts.body).toEqual({ type: 'resource.create', params: {}, options: {} });
+  });
+
+  it('execute 透传 options(actor)', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 201, body: {}, headers: {} }),
+    );
+    fakeAuthed(client);
+    await client.operations.execute('relation.create', { a: 1 }, { actor: 'user_x' });
+    expect(calls[0].requestOpts.body.options).toEqual({ actor: 'user_x' });
+  });
+
+  it('list 带 limit/type/status query', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: { total: 0, data: [] }, headers: {} }),
+    );
+    fakeAuthed(client);
+    await client.operations.list({ limit: 20, type: 'relation.create', status: 'success' });
+    expect(calls[0].method).toBe('GET');
+    expect(calls[0].url).toContain('/api/operations?');
+    expect(calls[0].url).toContain('limit=20');
+    expect(calls[0].url).toContain('type=relation.create');
+    expect(calls[0].url).toContain('status=success');
+  });
+
+  it('get 编码 operation id', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: { operation_id: 'op_abc' }, headers: {} }),
+    );
+    fakeAuthed(client);
+    await client.operations.get('op_abc');
+    expect(calls[0].url).toBe('http://127.0.0.1:8765/api/operations/op_abc');
+  });
+
+  it('undo 发 POST /:id/undo', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: { undoOperationId: 'op_2' }, headers: {} }),
+    );
+    fakeAuthed(client);
+    const res = await client.operations.undo('op_abc');
+    expect(res.undoOperationId).toBe('op_2');
+    expect(calls[0].method).toBe('POST');
+    expect(calls[0].url).toBe('http://127.0.0.1:8765/api/operations/op_abc/undo');
+  });
+
+  it('beginTransaction 发 POST body', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 201, body: { transactionId: 'tx_1' }, headers: {} }),
+    );
+    fakeAuthed(client);
+    const res = await client.operations.beginTransaction('__system__', 'batch', 'desc');
+    expect(res.transactionId).toBe('tx_1');
+    expect(calls[0].url).toBe('http://127.0.0.1:8765/api/operations/transaction');
+    expect(calls[0].requestOpts.body).toEqual({
+      containerRid: '__system__',
+      type: 'batch',
+      description: 'desc',
+    });
+  });
+
+  it('executeInTransaction 发 POST /tx/:id/execute', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: { operationId: 'op_x' }, headers: {} }),
+    );
+    fakeAuthed(client);
+    await client.operations.executeInTransaction('tx_1', 'resource.create', { type: 'note' });
+    expect(calls[0].method).toBe('POST');
+    expect(calls[0].url).toBe('http://127.0.0.1:8765/api/operations/transaction/tx_1/execute');
+    expect(calls[0].requestOpts.body).toEqual({
+      type: 'resource.create',
+      params: { type: 'note' },
+      options: {},
+    });
+  });
+
+  it('commit / rollback 发对应 POST', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: { ok: true }, headers: {} }),
+    );
+    fakeAuthed(client);
+    await client.operations.commit('tx_1');
+    await client.operations.rollback('tx_1');
+    expect(calls[0].url).toBe('http://127.0.0.1:8765/api/operations/transaction/tx_1/commit');
+    expect(calls[1].url).toBe('http://127.0.0.1:8765/api/operations/transaction/tx_1/rollback');
+  });
+});
+
+describe('events namespace', () => {
+  it('history 发 GET /api/events 带 query', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: { total: 1, data: [] }, headers: {} }),
+    );
+    fakeAuthed(client);
+    const res = await client.events.history({ type: 'resource.created', limit: 10 });
+    expect(res.total).toBe(1);
+    expect(calls[0].method).toBe('GET');
+    expect(calls[0].url).toContain('/api/events?');
+    expect(calls[0].url).toContain('type=resource.created');
+    expect(calls[0].url).toContain('limit=10');
+  });
+
+  it('subscribe 要求 handler 为函数', () => {
+    const { client } = makeClient(() => Promise.resolve({ status: 200, body: {}, headers: {} }));
+    expect(() => client.events.subscribe('resource.created', 'nope')).toThrow(/函数/);
+  });
+
+  it('subscribe 真实 SSE 流解析', async () => {
+    const server = httpServer.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write('event: resource.created\ndata: {"rid":"res_1"}\n\n');
+      res.write('event: resource.updated\ndata: {"rid":"res_2"}\n\n');
+      setTimeout(() => res.end(), 50);
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address();
+    try {
+      const client = new LoClient({ host: '127.0.0.1', port, validateStatus: false });
+      const received = [];
+      const sub = client.events.subscribe('resource.created', (ev) => received.push(ev));
+
+      await new Promise((resolve) => {
+        const start = Date.now();
+        const timer = setInterval(() => {
+          if (received.length >= 2 || Date.now() - start > 3000) {
+            clearInterval(timer);
+            resolve();
+          }
+        }, 20);
+      });
+
+      sub.close();
+      expect(received.length).toBe(2);
+      expect(received[0]).toEqual({ event: 'resource.created', data: { rid: 'res_1' } });
+      expect(received[1]).toEqual({ event: 'resource.updated', data: { rid: 'res_2' } });
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it('subscribe 心跳注释行被忽略', async () => {
+    const server = httpServer.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write(': connected\n\n');
+      res.write(': keep-alive\n\n');
+      res.write('data: {"x":1}\n\n');
+      setTimeout(() => res.end(), 50);
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address();
+    try {
+      const client = new LoClient({ host: '127.0.0.1', port, validateStatus: false });
+      const received = [];
+      const sub = client.events.subscribe('*', (ev) => received.push(ev));
+      await new Promise((resolve) => {
+        const start = Date.now();
+        const timer = setInterval(() => {
+          if (received.length >= 1 || Date.now() - start > 3000) {
+            clearInterval(timer);
+            resolve();
+          }
+        }, 20);
+      });
+      sub.close();
+      expect(received.length).toBe(1);
+      expect(received[0].data).toEqual({ x: 1 });
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it('subscribe 关闭连接后不再接收', async () => {
+    const server = httpServer.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write('data: {"n":1}\n\n');
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    const { port } = server.address();
+    try {
+      const client = new LoClient({ host: '127.0.0.1', port, validateStatus: false });
+      const received = [];
+      const sub = client.events.subscribe('*', (ev) => received.push(ev));
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      sub.close();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      expect(received.length).toBe(1);
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+});

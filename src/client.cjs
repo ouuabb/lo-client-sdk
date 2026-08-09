@@ -56,6 +56,9 @@ class LoClient {
     this.admin = createAdminApi(this);
     this.sync = createSyncApi(this);
     this.health = createHealthApi(this);
+    this.relations = createRelationsApi(this);
+    this.operations = createOperationsApi(this);
+    this.events = createEventsApi(this);
   }
 
   get baseUrl() {
@@ -185,13 +188,208 @@ function createHealthApi(client) {
   };
 }
 
+function createRelationsApi(client) {
+  const encode = (id) => encodeURIComponent(id);
+  return {
+    /**
+     * 列出关系
+     * @param {object} [query] — { rid?, type?, limit? }
+     *   - rid: 查询某资源的关系,返回 { outgoing, incoming }
+     *   - 否则返回 { total, data }
+     */
+    list(query) {
+      return client.get('/api/relations', query).then((r) => r.body);
+    },
+    /** 获取单个关系(含 metadata) */
+    get(id) {
+      return client.get(`/api/relations/${encode(id)}`).then((r) => r.body);
+    },
+    /** 创建关系 */
+    create(from, to, type = 'reference', metadata = {}) {
+      return client.post('/api/relations', { from, to, type, metadata }).then((r) => r.body);
+    },
+    /** 更新关系(type/metadata) */
+    update(id, updates) {
+      return client.put(`/api/relations/${encode(id)}`, { updates }).then((r) => r.body);
+    },
+    /** 删除关系(软删除) */
+    remove(id) {
+      return client.del(`/api/relations/${encode(id)}`).then((r) => r.body);
+    },
+  };
+}
+
+function createOperationsApi(client) {
+  const encode = (id) => encodeURIComponent(id);
+  return {
+    /**
+     * 执行操作
+     * @param {string} type — 操作类型(如 resource.create / relation.create)
+     * @param {object} [params] — 操作参数
+     * @param {object} [options] — { actor?, parentOperationId?, transactionId? }
+     * @returns {Promise<{ operationId, result }>}
+     */
+    execute(type, params = {}, options = {}) {
+      return client.post('/api/operations', { type, params, options }).then((r) => r.body);
+    },
+    /**
+     * 操作历史(系统级)
+     * @param {object} [query] — { limit?, type?, status? }
+     */
+    list(query) {
+      return client.get('/api/operations', query).then((r) => r.body);
+    },
+    /** 获取单个操作详情 */
+    get(id) {
+      return client.get(`/api/operations/${encode(id)}`).then((r) => r.body);
+    },
+    /** 撤销操作 */
+    undo(id) {
+      return client.post(`/api/operations/${encode(id)}/undo`).then((r) => r.body);
+    },
+    /** 开始事务 */
+    beginTransaction(containerRid = '__system__', type = 'batch', description = null) {
+      return client
+        .post('/api/operations/transaction', { containerRid, type, description })
+        .then((r) => r.body);
+    },
+    /** 在事务中执行操作 */
+    executeInTransaction(txId, type, params = {}, options = {}) {
+      return client
+        .post(`/api/operations/transaction/${encode(txId)}/execute`, { type, params, options })
+        .then((r) => r.body);
+    },
+    /** 提交事务 */
+    commit(txId) {
+      return client.post(`/api/operations/transaction/${encode(txId)}/commit`).then((r) => r.body);
+    },
+    /** 回滚事务 */
+    rollback(txId) {
+      return client.post(`/api/operations/transaction/${encode(txId)}/rollback`).then((r) => r.body);
+    },
+  };
+}
+
+function createEventsApi(client) {
+  /**
+   * 解析 SSE 数据块为事件对象
+   * @param {string} chunk — 累计到当前 buffer
+   * @returns {{ events: object[], rest: string }} — 已解析事件 + 剩余 buffer
+   */
+  function parseSse(buffer) {
+    const events = [];
+    let rest = buffer;
+
+    // 按空行切分事件块
+    const blocks = rest.split(/\r?\n\r?\n/);
+    rest = blocks.pop(); // 最后一段可能不完整
+
+    for (const block of blocks) {
+      let eventName = 'message';
+      const dataLines = [];
+      for (const line of block.split(/\r?\n/)) {
+        if (line.startsWith(':')) continue; // 注释/心跳
+        if (line.startsWith('event:')) {
+          eventName = line.slice(6).trim();
+        } else if (line.startsWith('data:')) {
+          dataLines.push(line.slice(5).trimStart());
+        }
+      }
+      if (dataLines.length === 0) continue;
+      let payload;
+      try {
+        payload = JSON.parse(dataLines.join('\n'));
+      } catch {
+        payload = dataLines.join('\n');
+      }
+      events.push({ event: eventName, data: payload });
+    }
+
+    return { events, rest };
+  }
+
+  return {
+    /**
+     * 查询事件历史
+     * @param {object} [query] — { type?, source?, limit?, offset? }
+     */
+    history(query) {
+      return client.get('/api/events', query).then((r) => r.body);
+    },
+    /**
+     * 订阅实时事件流(SSE)
+     * @param {string|string[]} types — 事件类型或类型数组('resource.created' / ['a','b'])
+     * @param {Function} handler — (event) => void，event = { event, data }
+     * @returns {{ close: Function }} 关闭连接
+     */
+    subscribe(types, handler) {
+      if (typeof handler !== 'function') {
+        throw new TypeError('subscribe 第二参数必须是函数');
+      }
+      const list = Array.isArray(types) ? types : [types];
+      const subscribe = list.filter(Boolean).join(',');
+
+      const url = new URL(
+        `${client.baseUrl}/api/events/stream${http.buildQuery({ subscribe })}`,
+      );
+      const transport = url.protocol === 'https:' ? require('https') : require('http');
+
+      // 复用 token 注入（与 client.request 一致）
+      const headers = { Accept: 'text/event-stream' };
+      if (url.pathname.startsWith('/api/admin/') && client._adminToken) {
+        headers.Authorization = `Bearer ${client._adminToken}`;
+      } else if (client.auth && client.auth.authenticated) {
+        headers.Authorization = `Bearer ${client.auth.token}`;
+      } else if (client._token) {
+        headers.Authorization = `Bearer ${client._token}`;
+      }
+
+      let closed = false;
+      let buffer = '';
+      const req = transport.request(url, { headers }, (res) => {
+        if (res.statusCode >= 400) {
+          res.resume();
+          return;
+        }
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          if (closed) return;
+          buffer += chunk;
+          const { events, rest } = parseSse(buffer);
+          buffer = rest;
+          for (const ev of events) {
+            try {
+              handler(ev);
+            } catch (e) {
+              process.emitWarning(`[lo-client] events handler failed: ${e.message}`);
+            }
+          }
+        });
+      });
+
+      req.on('error', (err) => {
+        process.emitWarning(`[lo-client] events stream error: ${err.message}`);
+      });
+
+      req.end();
+
+      return {
+        close() {
+          if (closed) return;
+          closed = true;
+          req.destroy();
+        },
+      };
+    },
+  };
+}
+
 function createNotesApi(client) {
   return {
     /**
      * 列出资源
      * @param {object} [query] — { type, schema, limit, offset }
-     */
-    list(query) {
+     */    list(query) {
       return client.get('/api/notes', query).then((r) => r.body);
     },
     /** 获取单个资源(含 content) */

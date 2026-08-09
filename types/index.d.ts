@@ -83,6 +83,9 @@ export class LoClient {
   admin: AdminApi;
   sync: SyncApi;
   health: HealthApi;
+  relations: RelationsApi;
+  operations: OperationsApi;
+  events: EventsApi;
   setAdminToken(token: string): void;
   request(method: string, path: string, query?: object, options?: object): Promise<ApiResponse>;
   get(path: string, query?: object, options?: object): Promise<ApiResponse>;
@@ -110,6 +113,55 @@ export class AuthClient {
   challenge(): Promise<AuthChallengeResult>;
   login(params: LoginParams): Promise<LoginResult>;
   logout(): void;
+}
+
+export interface RelationsApi {
+  /** 列出关系。query.rid 时返回 { outgoing, incoming }，否则 { total, data } */
+  list(query?: { rid?: string; type?: string; limit?: number }): Promise<any>;
+  /** 获取单个关系 */
+  get(id: number | string): Promise<any>;
+  /** 创建关系 */
+  create(from: string, to: string, type?: string, metadata?: object): Promise<any>;
+  /** 更新关系(type/metadata) */
+  update(id: number | string, updates: object): Promise<any>;
+  /** 删除关系(软删除) */
+  remove(id: number | string): Promise<any>;
+}
+
+export interface OperationResult {
+  operationId: string;
+  result: any;
+}
+
+export interface OperationsApi {
+  /** 执行操作 */
+  execute(type: string, params?: object, options?: object): Promise<OperationResult>;
+  /** 操作历史(系统级) */
+  list(query?: { limit?: number; type?: string; status?: string }): Promise<any>;
+  /** 获取单个操作详情 */
+  get(id: string): Promise<any>;
+  /** 撤销操作 */
+  undo(id: string): Promise<any>;
+  /** 开始事务 */
+  beginTransaction(containerRid?: string, type?: string, description?: string | null): Promise<{ transactionId: string }>;
+  /** 在事务中执行操作 */
+  executeInTransaction(txId: string, type: string, params?: object, options?: object): Promise<OperationResult>;
+  /** 提交事务 */
+  commit(txId: string): Promise<any>;
+  /** 回滚事务 */
+  rollback(txId: string): Promise<any>;
+}
+
+export interface SseEvent {
+  event: string;
+  data: any;
+}
+
+export interface EventsApi {
+  /** 查询事件历史 */
+  history(query?: { type?: string; source?: string; limit?: number; offset?: number }): Promise<any>;
+  /** 订阅实时事件流(SSE)，返回 { close() } 关闭连接 */
+  subscribe(types: string | string[], handler: (event: SseEvent) => void): { close(): void };
 }
 
 export interface NotesApi {
