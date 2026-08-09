@@ -16,6 +16,20 @@ const path = require('path');
 const fs = require('fs');
 
 /**
+ * 展开 ~ 为用户主目录并输出绝对路径（ssh-keygen 不做 ~ 展开）
+ * @param {string} p
+ * @returns {string}
+ */
+function expandHome(p) {
+  if (!p || typeof p !== 'string') return p;
+  if (p === '~') return os.homedir();
+  if (p.startsWith('~/') || p.startsWith('~\\')) {
+    return path.join(os.homedir(), p.slice(2));
+  }
+  return path.resolve(p);
+}
+
+/**
  * 使用 ssh-keygen 生成签名文件（OpenSSH 格式）
  * @param {string} nonce
  * @param {string} privateKeyPath
@@ -94,12 +108,23 @@ class AuthClient {
    * @returns {Promise<{ token, label, fingerprint }>}
    */
   async login(params = {}) {
-    const fd =
-      params.fingerprint ||
-      (params.publicKey ? await this._deriveFingerprint(params.publicKey) : null);
+    // 兼容文档入参 { fingerprint / publicKey } 与 { privateKeyPath }。
+    // 仅提供 privateKeyPath 时，自动从同目录 .pub 推导指纹以匹配 serve 注册的公钥。
+    const keyPath = expandHome(params.privateKeyPath || params.privateKey);
+    let fd = params.fingerprint;
 
+    if (!fd && params.publicKey) {
+      fd = await this._deriveFingerprint(params.publicKey);
+    }
+    if (!fd && keyPath) {
+      const pubPath = `${keyPath}.pub`;
+      if (!fs.existsSync(pubPath)) {
+        throw new Error(`公钥文件不存在: ${pubPath}`);
+      }
+      fd = await this._deriveFingerprint(fs.readFileSync(pubPath, 'utf8'));
+    }
     if (!fd) {
-      throw new Error('login 需要提供 fingerprint 或 publicKey 以匹配注册密钥');
+      throw new Error('login 需要提供 fingerprint、publicKey 或 privateKeyPath 以匹配注册密钥');
     }
 
     // 若无签名,生成挑战并签名
@@ -113,7 +138,7 @@ class AuthClient {
         throw new Error(`未注册的公钥指纹: ${fd}`);
       }
       const signer = this._signer || ((n, p) => signWithSshKeygen(n, p, this._namespace));
-      signature = signer(nonce, params.privateKey);
+      signature = signer(nonce, keyPath);
     }
 
     const res = await this._client.request('POST', '/api/auth/login', undefined, {
@@ -146,7 +171,7 @@ class AuthClient {
       if (result.status !== 0) {
         throw new Error(`ssh-keygen -lf 失败: ${(result.stderr || '').trim()}`);
       }
-      const match = result.stdout.match(/^\s*([A-Za-z0-9+/=:]+)\s+/);
+      const match = result.stdout.match(/(SHA\d+:[A-Za-z0-9+/=]+)/i);
       return match ? match[1] : null;
     } finally {
       try {

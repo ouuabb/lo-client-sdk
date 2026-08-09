@@ -1,5 +1,8 @@
 const { signWithSshKeygen } = require('../src/auth.cjs');
 const { LoClient } = require('../src/index.cjs');
+const path = require('path');
+const os = require('os');
+const fs = require('fs');
 
 /** 构造带 mock transport 的 client,记录请求 */
 function makeClient(handler) {
@@ -85,7 +88,7 @@ describe('AuthClient 状态', () => {
       }),
     );
     await expect(client.auth.login({ nonce: 'n', signature: 's' })).rejects.toThrow(
-      'login 需要提供 fingerprint 或 publicKey',
+      'login 需要提供 fingerprint、publicKey 或 privateKeyPath',
     );
   });
 
@@ -117,6 +120,51 @@ describe('AuthClient 状态', () => {
     expect(signer).toHaveBeenCalled();
     const loginCall = calls.find((c) => c.url.endsWith('/api/auth/login'));
     expect(loginCall.requestOpts.body.signature).toBe('signed-from-signer');
+  });
+
+  it('login 只用 privateKeyPath 也能完成（自动推导指纹并签名）', async () => {
+    const { client, calls } = makeClient((method, url) => {
+      if (url.endsWith('/api/auth/challenge')) {
+        return Promise.resolve({
+          status: 200,
+          body: { nonce: 'nn', registeredKeys: [{ fingerprint: 'fp3' }] },
+          headers: {},
+        });
+      }
+      if (url.endsWith('/api/auth/login')) {
+        return Promise.resolve({
+          status: 200,
+          body: { token: 'T', fingerprint: 'fp3' },
+          headers: {},
+        });
+      }
+      return Promise.resolve({ status: 200, body: {}, headers: {} });
+    });
+
+    const priv = path.join(os.tmpdir(), `lo-auth-test-${Date.now()}`, 'id_key');
+    fs.mkdirSync(path.dirname(priv), { recursive: true });
+    fs.writeFileSync(`${priv}.pub`, 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIx fake pub key comment');
+
+    const signer = jest.fn(() => 'signed-from-path');
+    client.auth._signer = signer;
+    const spy = jest
+      .spyOn(client.auth, '_deriveFingerprint')
+      .mockResolvedValue('fp3');
+
+    try {
+      const res = await client.auth.login({ privateKeyPath: priv });
+      expect(res.token).toBe('T');
+      expect(spy).toHaveBeenCalledWith(
+        expect.stringContaining('ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIx'),
+      );
+      expect(signer).toHaveBeenCalledWith('nn', path.resolve(priv));
+      const loginCall = calls.find((c) => c.url.endsWith('/api/auth/login'));
+      expect(loginCall.requestOpts.body.signature).toBe('signed-from-path');
+      expect(loginCall.requestOpts.body.fingerprint).toBe('fp3');
+    } finally {
+      spy.mockRestore();
+      fs.rmSync(path.dirname(priv), { recursive: true, force: true });
+    }
   });
 
   it('未注册指纹抛错', async () => {

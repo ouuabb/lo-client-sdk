@@ -12,6 +12,7 @@ jest.mock('fs', () => ({
 
 const childProcess = require('child_process');
 const fs = require('fs');
+const path = require('path');
 
 const { signWithSshKeygen, AuthClient } = require('../src/auth.cjs');
 
@@ -63,7 +64,7 @@ describe('AuthClient._deriveFingerprint', () => {
   it('成功解析 fingerprint', async () => {
     childProcess.spawnSync.mockReturnValue({
       status: 0,
-      stdout: 'SHA256:AbCdEf123456 user@host\n',
+      stdout: '256 SHA256:AbCdEf123456 user@host\n',
     });
     const auth = new AuthClient(mockClient({}));
     const fp = await auth._deriveFingerprint('ssh-ed25519 AAAA fake');
@@ -125,7 +126,7 @@ describe('AuthClient 认证流程', () => {
       return { status: 200, body: {}, headers: {} };
     });
     const res = await auth.login({ fingerprint: 'f2', privateKey: '/k' });
-    expect(signer).toHaveBeenCalledWith('nn', '/k');
+    expect(signer).toHaveBeenCalledWith('nn', path.resolve('/k'));
     expect(res.token).toBe('tok');
     expect(auth.authenticated).toBe(true);
   });
