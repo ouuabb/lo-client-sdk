@@ -1,5 +1,12 @@
+jest.mock('https', () => ({
+  request: jest.fn(() => {
+    throw new Error('https mocked');
+  }),
+}));
+
 const http = require('http');
-const { get, post, put, del, LoHttpError, LoApiError } = require('../src/http.cjs');
+const https = require('https');
+const { get, post, put, del, request, LoHttpError, LoApiError } = require('../src/http.cjs');
 
 /** 起一个临时 http server,返回 { url, port, close } */
 async function startServer(handler) {
@@ -179,11 +186,35 @@ describe('http.cjs 真实请求', () => {
   });
 
   it('LoHttpError 与 LoApiError 构造器默认值', () => {
-    const he = new LoHttpError('net', { cause: new Error('root') });
+    const he = new LoHttpError('net', {});
     expect(he.code).toBe('ERR_REQUEST');
-    expect(he.cause.message).toBe('root');
+    expect(he.cause).toBeUndefined();
+    const he2 = new LoHttpError('net', { cause: new Error('root') });
+    expect(he2.cause.message).toBe('root');
+    // options 缺省时构造器默认值分支
+    const he3 = new LoHttpError('plain');
+    expect(he3.code).toBe('ERR_REQUEST');
     const ae = new LoApiError('msg');
     expect(ae.name).toBe('LoApiError');
     expect(ae.status).toBeUndefined();
+  });
+
+  it('request 缺省 options 直接调用', async () => {
+    const srv = await startServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end('{"ok":1}');
+    });
+    try {
+      const res = await request('GET', `${srv.url}/x`);
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ ok: 1 });
+    } finally {
+      await srv.close();
+    }
+  });
+
+  it('https 协议走 https 传输层(被封住抛错)', async () => {
+    await expect(get('https://example.test/x')).rejects.toThrow(/https mocked/);
+    expect(https.request).toHaveBeenCalled();
   });
 });

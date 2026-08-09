@@ -173,6 +173,30 @@ describe('LoClient 基础', () => {
     client.logout();
     expect(client.auth.authenticated).toBe(false);
   });
+
+  it('无参构造使用默认配置', () => {
+    const client = new LoClient();
+    expect(client.baseUrl).toBe('http://127.0.0.1:8765');
+  });
+});
+
+describe('错误 message 分支', () => {
+  it('body 为空/null/非对象/无 error 时用 HTTP status', async () => {
+    const cases = [
+      { status: 404, headers: {} },
+      { status: 404, body: 'not found text', headers: {} },
+      { status: 502, body: { detail: 'x' }, headers: {} },
+    ];
+    for (const response of cases) {
+      const { client } = makeClient(() => Promise.resolve(response));
+      try {
+        await client.notes.get('r');
+        throw new Error('should throw');
+      } catch (e) {
+        expect(e.message).toContain(`HTTP ${response.status}`);
+      }
+    }
+  });
 });
 
 describe('错误处理', () => {
@@ -291,6 +315,7 @@ describe('端点覆盖', () => {
     await client.admin.containerPromote('c1', { memberPath: '/p' });
     await client.admin.containerDemote('c1', { memberPath: '/p' });
     await client.admin.containerSync('c1', { dryRun: true });
+    await client.admin.containerSync('c1'); // 不传 body → body || {}
     await client.admin.containerDiff('c1');
     await client.admin.containerStats('c1');
     await client.admin.relations({ rid: 'r' });
@@ -301,7 +326,7 @@ describe('端点覆盖', () => {
     await client.admin.acceptSuggestion('s1');
     await client.admin.rejectSuggestion('s1');
     await client.admin.executeSuggestion('s1');
-    expect(calls.length).toBe(35);
+    expect(calls.length).toBe(36);
   });
 
   it('admin 端点使用 adminToken', async () => {
@@ -368,7 +393,9 @@ describe('端点覆盖', () => {
     await client.automations.enable('a1');
     await client.automations.disable('a1');
     await client.automations.history({ auto: 'a1' });
-    expect(calls).toHaveLength(7);
+    await client.automations.run('a1'); // 不传 body → body || {}
+    expect(calls).toHaveLength(8);
+    expect(calls[7].url).toContain('/api/automations/a1/run');
   });
 
   it('evolution 全量端点', async () => {

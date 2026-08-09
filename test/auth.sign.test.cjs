@@ -47,6 +47,11 @@ describe('signWithSshKeygen', () => {
     expect(() => signWithSshKeygen('n', '/nope')).toThrow(/ssh-keygen 签名失败/);
   });
 
+  it('stderr 为空时回退到 stdout 拼接错误', () => {
+    childProcess.spawnSync.mockReturnValue({ status: 1, stderr: '' });
+    expect(() => signWithSshKeygen('n', '/nope')).toThrow(/ssh-keygen 签名失败/);
+  });
+
   it('未生成签名文件抛错', () => {
     childProcess.spawnSync.mockReturnValue({ status: 0 });
     fs.existsSync.mockReturnValue(false);
@@ -72,6 +77,12 @@ describe('AuthClient._deriveFingerprint', () => {
 
   it('ssh-keygen -lf 失败抛错', () => {
     childProcess.spawnSync.mockReturnValue({ status: 2, stderr: 'bad key' });
+    const auth = new AuthClient(mockClient({}));
+    expect(() => auth._deriveFingerprint('invalid')).toThrow(/lf/);
+  });
+
+  it('ssh-keygen -lf 失败且 stderr 为空', () => {
+    childProcess.spawnSync.mockReturnValue({ status: 2, stderr: '' });
     const auth = new AuthClient(mockClient({}));
     expect(() => auth._deriveFingerprint('invalid')).toThrow(/lf/);
   });
@@ -147,5 +158,48 @@ describe('AuthClient 认证流程', () => {
       expect.any(Array),
       expect.any(Object),
     );
+  });
+
+  it('login 无参走默认参数并抛缺 fingerprint', async () => {
+    const auth = new AuthClient(mockClient({}));
+    await expect(auth.login()).rejects.toThrow(/需要提供 fingerprint/);
+  });
+
+  it('fingerprint 缺但提供 publicKey 可触发派生', async () => {
+    childProcess.spawnSync.mockReturnValue({
+      status: 0,
+      stdout: 'SHA256:pub123 host\n',
+    });
+    const client = mockClient({});
+    client.request.mockImplementation(async (method, url) => {
+      if (url === '/api/auth/challenge') {
+        return {
+          status: 200,
+          body: { nonce: 'nn', registeredKeys: [{ fingerprint: 'SHA256:pub123' }] },
+          headers: {},
+        };
+      }
+      if (url === '/api/auth/login') {
+        return { status: 200, body: { token: 't' }, headers: {} };
+      }
+      return { status: 200, body: {}, headers: {} };
+    });
+    const auth = new AuthClient(client, { signer: () => 'sig' });
+    const res = await auth.login({ publicKey: 'ssh-ed25519 AAA' });
+    expect(res.token).toBe('t');
+    // body.fingerprint 缺失 → 回退到 fd(from publicKey)
+    expect(auth.fingerprint).toBe('SHA256:pub123');
+  });
+
+  it('challenge registeredKeys 缺失时未注册指纹抛错', async () => {
+    const client = mockClient({});
+    client.request.mockImplementation(async (method, url) => {
+      if (url === '/api/auth/challenge') {
+        return { status: 200, body: { nonce: 'nn' }, headers: {} };
+      }
+      return { status: 200, body: {}, headers: {} };
+    });
+    const auth = new AuthClient(client, { signer: (n, p) => 'x' });
+    await expect(auth.login({ fingerprint: 'nope' })).rejects.toThrow(/未注册的公钥指纹: nope/);
   });
 });
