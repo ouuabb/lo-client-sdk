@@ -34,9 +34,7 @@ describe('AuthClient.challenge', () => {
 
 describe('AuthClient 状态', () => {
   it('默认未认证', () => {
-    const { client } = makeClient(() =>
-      Promise.resolve({ status: 200, body: {}, headers: {} }),
-    );
+    const { client } = makeClient(() => Promise.resolve({ status: 200, body: {}, headers: {} }));
     expect(client.auth.authenticated).toBe(false);
     expect(client.auth.token).toBeNull();
   });
@@ -67,17 +65,11 @@ describe('AuthClient 状态', () => {
     expect(res.token).toBe('T1');
     expect(client.auth.authenticated).toBe(true);
     expect(client.auth.fingerprint).toBe('fp1');
-    expect(
-      calls.some(
-        (c) => c.method === 'POST' && c.url.endsWith('/api/auth/login'),
-      ),
-    ).toBe(true);
+    expect(calls.some((c) => c.method === 'POST' && c.url.endsWith('/api/auth/login'))).toBe(true);
   });
 
   it('logout 清空认证状态', async () => {
-    const { client } = makeClient(() =>
-      Promise.resolve({ status: 200, body: {}, headers: {} }),
-    );
+    const { client } = makeClient(() => Promise.resolve({ status: 200, body: {}, headers: {} }));
     client.auth._token = 'x';
     client.auth._fingerprint = 'fp';
     client.logout();
@@ -135,9 +127,7 @@ describe('AuthClient 状态', () => {
         headers: {},
       }),
     );
-    await expect(
-      client.auth.login({ fingerprint: 'unknown' }),
-    ).rejects.toThrow('未注册的公钥指纹');
+    await expect(client.auth.login({ fingerprint: 'unknown' })).rejects.toThrow('未注册的公钥指纹');
   });
 });
 

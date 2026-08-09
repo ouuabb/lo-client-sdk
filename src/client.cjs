@@ -105,9 +105,7 @@ class LoClient {
     if (res && res.status >= 400) {
       const body = res.body;
       const message =
-        body && typeof body === 'object' && body.error
-          ? body.error
-          : `HTTP ${res.status}`;
+        body && typeof body === 'object' && body.error ? body.error : `HTTP ${res.status}`;
       throw new LoApiError(message, {
         status: res.status,
         body,
@@ -439,18 +437,17 @@ function createAdminApi(client) {
       return client.post(`/api/admin/resources/${encode(rid)}/link`, body).then((r) => r.body);
     },
     unlink(rid, target, query) {
-      return client.del(
-        `/api/admin/resources/${encode(rid)}/link/${encode(target)}`,
-        query,
-      ).then((r) => r.body);
+      return client
+        .del(`/api/admin/resources/${encode(rid)}/link/${encode(target)}`, query)
+        .then((r) => r.body);
     },
     setTags(rid, tags) {
       return client.put(`/api/admin/resources/${encode(rid)}/tags`, { tags }).then((r) => r.body);
     },
     removeTag(rid, tag) {
-      return client.del(
-        `/api/admin/resources/${encode(rid)}/tags/${encode(tag)}`,
-      ).then((r) => r.body);
+      return client
+        .del(`/api/admin/resources/${encode(rid)}/tags/${encode(tag)}`)
+        .then((r) => r.body);
     },
     graph(query) {
       return client.get('/api/admin/graph', query).then((r) => r.body);
@@ -465,16 +462,22 @@ function createAdminApi(client) {
       return client.get(`/api/admin/containers/${encode(id)}`).then((r) => r.body);
     },
     containerPromote(id, body) {
-      return client.post(`/api/admin/containers/${encode(id)}/members/promote`, body).then((r) => r.body);
+      return client
+        .post(`/api/admin/containers/${encode(id)}/members/promote`, body)
+        .then((r) => r.body);
     },
     containerDemote(id, body) {
-      return client.post(`/api/admin/containers/${encode(id)}/members/demote`, body).then((r) => r.body);
+      return client
+        .post(`/api/admin/containers/${encode(id)}/members/demote`, body)
+        .then((r) => r.body);
     },
     containerScan(id) {
       return client.post(`/api/admin/containers/${encode(id)}/scan`).then((r) => r.body);
     },
     containerSync(id, body) {
-      return client.post(`/api/admin/containers/${encode(id)}/sync`, body || {}).then((r) => r.body);
+      return client
+        .post(`/api/admin/containers/${encode(id)}/sync`, body || {})
+        .then((r) => r.body);
     },
     containerDiff(id) {
       return client.get(`/api/admin/containers/${encode(id)}/diff`).then((r) => r.body);
@@ -522,7 +525,9 @@ function createAdminApi(client) {
       return client.get('/api/admin/categories').then((r) => r.body);
     },
     renameCategory(name, newCategory) {
-      return client.put(`/api/admin/categories/${encode(name)}`, { newCategory }).then((r) => r.body);
+      return client
+        .put(`/api/admin/categories/${encode(name)}`, { newCategory })
+        .then((r) => r.body);
     },
     deleteCategory(name) {
       return client.del(`/api/admin/categories/${encode(name)}`).then((r) => r.body);

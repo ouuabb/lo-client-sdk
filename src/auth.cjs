@@ -35,9 +35,7 @@ function signWithSshKeygen(nonce, privateKeyPath, namespace = 'lo-cli') {
       { encoding: 'utf8', windowsHide: true, timeout: 15000 },
     );
     if (result.status !== 0) {
-      throw new Error(
-        `ssh-keygen 签名失败: ${(result.stderr || result.stdout || '').trim()}`,
-      );
+      throw new Error(`ssh-keygen 签名失败: ${(result.stderr || result.stdout || '').trim()}`);
     }
     if (!fs.existsSync(sigFile)) {
       throw new Error('ssh-keygen 未生成签名文件');
@@ -84,12 +82,9 @@ class AuthClient {
 
   /** 获取挑战与已注册公钥 */
   async challenge() {
-    const res = await this._client.request(
-      'POST',
-      '/api/auth/challenge',
-      undefined,
-      { skipAuth: true },
-    );
+    const res = await this._client.request('POST', '/api/auth/challenge', undefined, {
+      skipAuth: true,
+    });
     return res.body;
   }
 
@@ -117,21 +112,14 @@ class AuthClient {
       if (!key) {
         throw new Error(`未注册的公钥指纹: ${fd}`);
       }
-      const signer =
-        this._signer ||
-        ((n, p) => signWithSshKeygen(n, p, this._namespace));
+      const signer = this._signer || ((n, p) => signWithSshKeygen(n, p, this._namespace));
       signature = signer(nonce, params.privateKey);
     }
 
-    const res = await this._client.request(
-      'POST',
-      '/api/auth/login',
-      undefined,
-      {
-        body: { nonce, fingerprint: fd, signature },
-        skipAuth: true,
-      },
-    );
+    const res = await this._client.request('POST', '/api/auth/login', undefined, {
+      body: { nonce, fingerprint: fd, signature },
+      skipAuth: true,
+    });
     const body = res.body;
     this._token = body.token;
     this._fingerprint = body.fingerprint || fd;
@@ -150,11 +138,11 @@ class AuthClient {
     const pubFile = path.join(workDir, 'key.pub');
     try {
       fs.writeFileSync(pubFile, publicKey);
-      const result = spawnSync(
-        'ssh-keygen',
-        ['-lf', pubFile],
-        { encoding: 'utf8', windowsHide: true, timeout: 10000 },
-      );
+      const result = spawnSync('ssh-keygen', ['-lf', pubFile], {
+        encoding: 'utf8',
+        windowsHide: true,
+        timeout: 10000,
+      });
       if (result.status !== 0) {
         throw new Error(`ssh-keygen -lf 失败: ${(result.stderr || '').trim()}`);
       }

@@ -1,5 +1,6 @@
 ﻿const { LoClient, LoApiError, LoHttpError } = require('../src/index.cjs');
 const http = require('../src/http.cjs');
+const httpServer = require('http');
 
 /** 构造注入 mock transport 的 client */
 function makeClient(handler, opts = {}) {
@@ -67,8 +68,8 @@ describe('LoClient 基础', () => {
   });
 
   it('GET 带 query 并 encode', async () => {
-    const { client, calls } = makeClient(
-      () => Promise.resolve({ status: 200, body: {}, headers: {} }),
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: {}, headers: {} }),
     );
     fakeAuthed(client);
     await client.search.search('hello world');
@@ -76,8 +77,8 @@ describe('LoClient 基础', () => {
   });
 
   it('POST json body', async () => {
-    const { client, calls } = makeClient(
-      () => Promise.resolve({ status: 200, body: {}, headers: {} }),
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: {}, headers: {} }),
     );
     fakeAuthed(client);
     await client.notes.create({ title: 'hi' });
@@ -87,8 +88,8 @@ describe('LoClient 基础', () => {
   });
 
   it('PUT 与 DELETE', async () => {
-    const { client, calls } = makeClient(
-      () => Promise.resolve({ status: 200, body: {}, headers: {} }),
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: {}, headers: {} }),
     );
     fakeAuthed(client);
     await client.notes.update('res_a', { content: 'v2' });
@@ -100,11 +101,77 @@ describe('LoClient 基础', () => {
   });
 
   it('未认证时不带 token,不抛错', async () => {
-    const { client, calls } = makeClient(
-      () => Promise.resolve({ status: 200, body: {}, headers: {} }),
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: {}, headers: {} }),
     );
     await client.health.ping();
     expect(calls[0].requestOpts.headers.Authorization).toBeUndefined();
+  });
+
+  it('default transport 走真实 http(不注入 transport)', async () => {
+    const server = httpServer.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ alive: true }));
+    });
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const { port } = server.address();
+    try {
+      const client = new LoClient({
+        host: '127.0.0.1',
+        port,
+        protocol: 'http',
+      });
+      const res = await client.get('/api/health');
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ alive: true });
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+    }
+  });
+
+  it('validateStatus:false 不抛错直接返回原始响应', async () => {
+    const { client, calls } = makeClient(
+      () => Promise.resolve({ status: 500, body: { error: 'boom' }, headers: {} }),
+      { validateStatus: false },
+    );
+    const res = await client.get('/api/x');
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('boom');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('setAdminToken 后 admin 请求带 Admin header', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: {}, headers: {} }),
+    );
+    client.setAdminToken('adm_2');
+    await client.admin.stats();
+    expect(calls[0].requestOpts.headers.Authorization).toBe('Bearer adm_2');
+  });
+
+  it('内部 _token 兜底注入(未认证时)', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: {}, headers: {} }),
+    );
+    client._token = 'legacy_tok';
+    await client.notes.list();
+    expect(calls[0].requestOpts.headers.Authorization).toBe('Bearer legacy_tok');
+  });
+
+  it('login/logout 委托给 auth', async () => {
+    const { client } = makeClient((method, url) =>
+      Promise.resolve({
+        status: 200,
+        body: url.includes('/api/auth/login') ? { token: 'tok_l', fingerprint: 'f' } : {},
+        headers: {},
+      }),
+    );
+    // login 需要 signature/nonce 提供则直接走 request,否则 challenge
+    // 这里直接验证委托:签名+指纹模式
+    await client.login({ nonce: 'n', signature: 's', fingerprint: 'f' });
+    expect(client.auth.authenticated).toBe(true);
+    client.logout();
+    expect(client.auth.authenticated).toBe(false);
   });
 });
 
@@ -127,8 +194,7 @@ describe('错误处理', () => {
   });
 
   it('传输错误抛 LoHttpError', async () => {
-    const handler = () =>
-      Promise.reject(new LoHttpError('连接失败', { code: 'ECONNREFUSED' }));
+    const handler = () => Promise.reject(new LoHttpError('连接失败', { code: 'ECONNREFUSED' }));
     const client = new LoClient({ transport: handler });
     await expect(client.health.ping()).rejects.toThrow(LoHttpError);
   });
@@ -144,8 +210,8 @@ describe('错误处理', () => {
 
 describe('端点覆盖', () => {
   it('notes list/get/create/update/remove', async () => {
-    const { client, calls } = makeClient(
-      () => Promise.resolve({ status: 200, body: {}, headers: {} }),
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: {}, headers: {} }),
     );
     fakeAuthed(client);
     await client.notes.list({ limit: 5 });
@@ -154,18 +220,12 @@ describe('端点覆盖', () => {
     await client.notes.update('res_1', { title: 't' });
     await client.notes.remove('res_1');
     expect(calls).toHaveLength(5);
-    expect(calls.map((c) => c.method)).toEqual([
-      'GET',
-      'GET',
-      'POST',
-      'PUT',
-      'DELETE',
-    ]);
+    expect(calls.map((c) => c.method)).toEqual(['GET', 'GET', 'POST', 'PUT', 'DELETE']);
   });
 
   it('search.schemas.views', async () => {
-    const { client, calls } = makeClient(
-      () => Promise.resolve({ status: 200, body: {}, headers: {} }),
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: {}, headers: {} }),
     );
     fakeAuthed(client);
     await client.search.search('q');
@@ -180,8 +240,8 @@ describe('端点覆盖', () => {
   });
 
   it('workflows/automations/evolution/sync', async () => {
-    const { client, calls } = makeClient(
-      () => Promise.resolve({ status: 200, body: {}, headers: {} }),
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: {}, headers: {} }),
     );
     fakeAuthed(client);
     await client.workflows.list();
@@ -202,8 +262,8 @@ describe('端点覆盖', () => {
   });
 
   it('admin endpoints incl. commit/status/tags/types/containers/categories', async () => {
-    const { client, calls } = makeClient(
-      () => Promise.resolve({ status: 200, body: {}, headers: {} }),
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: {}, headers: {} }),
     );
     fakeAuthed(client);
     await client.admin.stats();
@@ -251,5 +311,102 @@ describe('端点覆盖', () => {
     );
     await client.admin.stats();
     expect(calls[0].requestOpts.headers.Authorization).toBe('Bearer admintok');
+  });
+
+  it('schemas get/create/update/remove', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: {}, headers: {} }),
+    );
+    fakeAuthed(client);
+    await client.schemas.get('s1');
+    await client.schemas.create({ name: 'n' });
+    await client.schemas.update('s1', { name: 'n2' });
+    await client.schemas.remove('s1');
+    expect(calls.map((c) => c.method)).toEqual(['GET', 'POST', 'PUT', 'DELETE']);
+  });
+
+  it('views get/update/remove', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: {}, headers: {} }),
+    );
+    fakeAuthed(client);
+    await client.views.list({ q: 't' });
+    await client.views.get('v1');
+    await client.views.update('v1', {});
+    await client.views.remove('v1');
+    expect(calls).toHaveLength(4);
+  });
+
+  it('workflows get/create/update/remove/versions/attach/detach/resume/can/instance/history', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: {}, headers: {} }),
+    );
+    fakeAuthed(client);
+    await client.workflows.get('wf1');
+    await client.workflows.create({ name: 'wf' });
+    await client.workflows.update('wf1', {});
+    await client.workflows.remove('wf1', { force: true });
+    await client.workflows.versions('wf1');
+    await client.workflows.attach('wf1', { resourceRid: 'r' });
+    await client.workflows.detach('wf1', { resourceRid: 'r' });
+    await client.workflows.resume('wf1', {});
+    await client.workflows.canTransition('wf1', {});
+    await client.workflows.instance('wf1');
+    await client.workflows.history({ wf: 'wf1' });
+    expect(calls).toHaveLength(11);
+  });
+
+  it('automations get/create/update/remove/enable/disable/history', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: {}, headers: {} }),
+    );
+    fakeAuthed(client);
+    await client.automations.get('a1');
+    await client.automations.create({});
+    await client.automations.update('a1', {});
+    await client.automations.remove('a1');
+    await client.automations.enable('a1');
+    await client.automations.disable('a1');
+    await client.automations.history({ auto: 'a1' });
+    expect(calls).toHaveLength(7);
+  });
+
+  it('evolution 全量端点', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: {}, headers: {} }),
+    );
+    fakeAuthed(client);
+    await client.evolution.status();
+    await client.evolution.observe();
+    await client.evolution.health();
+    await client.evolution.detect();
+    await client.evolution.plan();
+    await client.evolution.execute();
+    await client.evolution.history();
+    await client.evolution.rollback();
+    expect(calls).toHaveLength(8);
+  });
+
+  it('health 全量端点', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: {}, headers: {} }),
+    );
+    fakeAuthed(client);
+    await client.health.ping();
+    await client.health.stats();
+    await client.health.tags();
+    expect(calls).toHaveLength(3);
+  });
+
+  it('admin getResource/updateResource/deleteResource', async () => {
+    const { client, calls } = makeClient(() =>
+      Promise.resolve({ status: 200, body: {}, headers: {} }),
+    );
+    fakeAuthed(client);
+    await client.admin.getResource('r1');
+    await client.admin.updateResource('r1', { name: 'x' });
+    await client.admin.deleteResource('r1', { hard: true });
+    expect(calls.map((c) => c.method)).toEqual(['GET', 'PUT', 'DELETE']);
+    expect(calls[2].url).toContain('?hard=true');
   });
 });
