@@ -1,6 +1,8 @@
 # AGENTS.md — lo-client-sdk
 
-本文件是 **薄入口**。lo 生态唯一权威总纲见 **`../docs/ecosystem/AGENTS.md`**
+本文件是 **薄入口**。lo 生态唯一权威总纲已由 **opencode 全局配置自动加载**
+（`~/.config/opencode/opencode.jsonc` → `instructions`）；工作区布局下亦可读
+`../docs/ecosystem/AGENTS.md`。
 （含：契约铁律 §1、不可触犯边界 §12、开发流程 §3、测试 §4、文档 §5、审查 §6、陷阱 §7、
 边界速查 §8、各仓库速查 §2）。**开始任何改动前，先读总纲。**
 
