@@ -1,0 +1,10 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "references": {
+    "lo-meta": {
+      "repository": "ouuabb/lo-meta",
+      "branch": "main",
+      "description": "lo 生态权威文档仓库：总纲（ecosystem/AGENTS.md，含不可触犯边界 §12）、规格、各仓库聚合文档"
+    }
+  }
+}
